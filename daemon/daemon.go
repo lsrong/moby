@@ -620,12 +620,15 @@ func (daemon *Daemon) createRootfs(container *Container, img *image.Image) error
 
 // Commit creates a new filesystem image from the current state of a container.
 // The image can optionally be tagged into a repository
+// Commit 创建
 func (daemon *Daemon) Commit(container *Container, repository, tag, comment, author string, pause bool, config *runconfig.Config) (*image.Image, error) {
+	// 暂停 docker container 的运行（Pause）
 	if pause {
 		container.Pause()
 		defer container.Unpause()
 	}
 
+	// 容器文件系统的Read-Write层打成tar包。
 	if err := container.Mount(); err != nil {
 		return nil, err
 	}
@@ -649,6 +652,7 @@ func (daemon *Daemon) Commit(container *Container, repository, tag, comment, aut
 		containerConfig = container.Config
 	}
 
+	// Graph注册新的一层镜像
 	img, err := daemon.graph.Create(rwTar, containerID, containerImage, comment, author, containerConfig, config)
 	if err != nil {
 		return nil, err

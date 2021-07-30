@@ -64,6 +64,7 @@ func (cli *DockerCli) LoadConfigFile() (err error) {
 	return err
 }
 
+// NewDockerCli 构建docker客户端：解析flag参数，构建rest参数，（特殊业务处理）发送rest请求，反馈结果
 func NewDockerCli(in io.ReadCloser, out, err io.Writer, proto, addr string, tlsConfig *tls.Config) *DockerCli {
 	var (
 		isTerminal = false

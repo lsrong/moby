@@ -440,10 +440,13 @@ func (srv *Server) exportImage(eng *engine.Engine, name, tempdir string) error {
 	return nil
 }
 
+// Build: 镜像构建job，镜像构建核心业务处理。
 func (srv *Server) Build(job *engine.Job) engine.Status {
 	if len(job.Args) != 0 {
 		return job.Errorf("Usage: %s\n", job.Name)
 	}
+
+	// 解析Job环境变量
 	var (
 		remoteURL      = job.Getenv("remote")
 		repoName       = job.Getenv("t")
@@ -460,6 +463,7 @@ func (srv *Server) Build(job *engine.Job) engine.Status {
 	job.GetenvJson("configFile", configFile)
 	repoName, tag = utils.ParseRepositoryTag(repoName)
 
+	// 读取dockerfile构建内容
 	if remoteURL == "" {
 		context = ioutil.NopCloser(job.Stdin)
 	} else if utils.IsGIT(remoteURL) {
@@ -500,6 +504,8 @@ func (srv *Server) Build(job *engine.Job) engine.Status {
 	defer context.Close()
 
 	sf := utils.NewStreamFormatter(job.GetenvBool("json"))
+
+	// buildFile 构建结构体
 	b := NewBuildFile(srv,
 		&utils.StdoutFormater{
 			Writer:          job.Stdout,
@@ -510,6 +516,7 @@ func (srv *Server) Build(job *engine.Job) engine.Status {
 			StreamFormatter: sf,
 		},
 		!suppressOutput, !noCache, rm, forceRm, job.Stdout, sf, authConfig, configFile)
+	// 开始执行构建
 	id, err := b.Build(context)
 	if err != nil {
 		return job.Error(err)

@@ -81,6 +81,7 @@ func (b *buildFile) clearTmp(containers map[string]struct{}) {
 	}
 }
 
+// CmdFrom FROM 命令，基础镜像的加载，初始化build流程所需的配置信息
 func (b *buildFile) CmdFrom(name string) error {
 	image, err := b.daemon.Repositories().LookupImage(name)
 	if err != nil {
@@ -190,6 +191,7 @@ func (b *buildFile) CmdRun(args string) error {
 	if b.image == "" {
 		return fmt.Errorf("Please provide a source image with `from` prior to run")
 	}
+	// 构建执行命令（cmd）
 	config, _, _, err := runconfig.Parse(append([]string{b.image}, b.buildCmdFromJson(args)...), nil)
 	if err != nil {
 		return err
@@ -203,6 +205,8 @@ func (b *buildFile) CmdRun(args string) error {
 
 	utils.Debugf("Command to be executed: %v", b.config.Cmd)
 
+	// 镜像cache的重用机制，构建相应的命令时，不再执行RUN命令后的整条命令
+	// 从docker daemon本地的镜像中找到效果与执行该命令相同的镜像
 	hit, err := b.probeCache()
 	if err != nil {
 		return err
@@ -211,19 +215,24 @@ func (b *buildFile) CmdRun(args string) error {
 		return nil
 	}
 
+	// 不使用镜像cache，创建container对象，为运行容器做准备
 	c, err := b.create()
 	if err != nil {
 		return err
 	}
 	// Ensure that we keep the container mounted until the commit
 	// to avoid unmounting and then mounting directly again
+	// 挂载文件系统，确保我们保持容器挂载直到提交以避免卸载然后再次直接挂载
 	c.Mount()
 	defer c.Unmount()
 
+	// 运行容器
 	err = b.run(c)
 	if err != nil {
 		return err
 	}
+
+	// 提交新镜像，将容器运行结果保存为一个新镜像,将更换后的top layer制作并存储为一个新镜像。
 	if err := b.commit(c.ID, cmd, "run"); err != nil {
 		return err
 	}
@@ -656,6 +665,7 @@ func (b *buildFile) CmdAdd(args string) error {
 	return b.runContextCommand(args, true, true, "ADD")
 }
 
+// create 创建临时容器执行命令
 func (b *buildFile) create() (*daemon.Container, error) {
 	if b.image == "" {
 		return nil, fmt.Errorf("Please provide a source image with `from` prior to run")
@@ -708,7 +718,7 @@ func (b *buildFile) run(c *daemon.Container) error {
 	return nil
 }
 
-// Commit the container <id> with the autorun command <autoCmd>
+// commit Commit the container <id> with the autorun command <autoCmd>
 func (b *buildFile) commit(id string, autoCmd []string, comment string) error {
 	if b.image == "" {
 		return fmt.Errorf("Please provide a source image with `from` prior to commit")
@@ -764,12 +774,15 @@ func (b *buildFile) commit(id string, autoCmd []string, comment string) error {
 // Long lines can be split with a backslash
 var lineContinuation = regexp.MustCompile(`\\\s*\n`)
 
+// Build 执行构建，逐行执行dockerfile命令，直到成功生成新镜像
 func (b *buildFile) Build(context io.Reader) (string, error) {
+	// 创建零时文件
 	tmpdirPath, err := ioutil.TempDir("", "docker-build")
 	if err != nil {
 		return "", err
 	}
 
+	// 解压context内容
 	decompressedStream, err := archive.DecompressStream(context)
 	if err != nil {
 		return "", err
@@ -797,6 +810,7 @@ func (b *buildFile) Build(context io.Reader) (string, error) {
 		dockerfile = lineContinuation.ReplaceAllString(stripComments(fileBytes), "")
 		stepN      = 0
 	)
+	// 逐行解析dockerfile内容
 	for _, line := range strings.Split(dockerfile, "\n") {
 		line = strings.Trim(strings.Replace(line, "\t", " ", -1), " \t\r\n")
 		if len(line) == 0 {
@@ -820,21 +834,24 @@ func (b *buildFile) Build(context io.Reader) (string, error) {
 }
 
 // BuildStep parses a single build step from `instruction` and executes it in the current context.
+// 解析相应的dockerfile指令，完成构建一个镜像layer的任务
 func (b *buildFile) BuildStep(name, expression string) error {
 	fmt.Fprintf(b.outStream, "Step %s : %s\n", name, expression)
 	tmp := strings.SplitN(expression, " ", 2)
 	if len(tmp) != 2 {
 		return fmt.Errorf("Invalid Dockerfile format")
 	}
+	// 解析命令，FORM ubuntu:14:04, instruction：FROM, arguments:ubuntu:14:04
 	instruction := strings.ToLower(strings.Trim(tmp[0], " "))
 	arguments := strings.Trim(tmp[1], " ")
 
+	// 获取方法名称，FROM => CmdFrom
 	method, exists := reflect.TypeOf(b).MethodByName("Cmd" + strings.ToUpper(instruction[:1]) + strings.ToLower(instruction[1:]))
 	if !exists {
 		fmt.Fprintf(b.errStream, "# Skipping unknown instruction %s\n", strings.ToUpper(instruction))
 		return nil
 	}
-
+	// 通过反射完成方法执行
 	ret := method.Func.Call([]reflect.Value{reflect.ValueOf(b), reflect.ValueOf(arguments)})[0].Interface()
 	if ret != nil {
 		return ret.(error)

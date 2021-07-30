@@ -896,6 +896,7 @@ func getImagesByName(eng *engine.Engine, version version.Version, w http.Respons
 	return job.Run()
 }
 
+// postBuild 构建镜像处理函数，解析请求参数，构建并触发build任务。
 func postBuild(eng *engine.Engine, version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if version.LessThan("1.3") {
 		return fmt.Errorf("Multipart upload for build is no longer supported. Please upgrade your docker client.")
@@ -905,7 +906,7 @@ func postBuild(eng *engine.Engine, version version.Version, w http.ResponseWrite
 		authConfig        = &registry.AuthConfig{}
 		configFileEncoded = r.Header.Get("X-Registry-Config")
 		configFile        = &registry.ConfigFile{}
-		job               = eng.Job("build")
+		job               = eng.Job("build") // build job
 	)
 
 	// This block can be removed when API versions prior to 1.9 are deprecated.
@@ -936,7 +937,7 @@ func postBuild(eng *engine.Engine, version version.Version, w http.ResponseWrite
 	} else {
 		job.Stdout.Add(utils.NewWriteFlusher(w))
 	}
-
+	// 解析rest请求参数，设置build job的执行参数
 	if r.FormValue("forcerm") == "1" && version.GreaterThanOrEqualTo("1.12") {
 		job.Setenv("rm", "1")
 	} else if r.FormValue("rm") == "" && version.GreaterThanOrEqualTo("1.12") {
@@ -953,6 +954,7 @@ func postBuild(eng *engine.Engine, version version.Version, w http.ResponseWrite
 	job.SetenvJson("authConfig", authConfig)
 	job.SetenvJson("configFile", configFile)
 
+	// 执行build任务
 	if err := job.Run(); err != nil {
 		if !job.Stdout.Used() {
 			return err
@@ -1082,6 +1084,8 @@ func createRouter(eng *engine.Engine, logging, enableCors bool, dockerVersion st
 	if os.Getenv("DEBUG") != "" {
 		AttachProfiler(r)
 	}
+
+	// daemon server路由规则
 	m := map[string]map[string]HttpApiFunc{
 		"GET": {
 			"/_ping":                          ping,
