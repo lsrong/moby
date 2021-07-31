@@ -382,31 +382,45 @@ func (daemon *Daemon) restore() error {
 }
 
 // Create creates a new container from the given configuration with a given name.
+// 生成新容器
 func (daemon *Daemon) Create(config *runconfig.Config, name string) (*Container, []string, error) {
 	var (
 		container *Container
 		warnings  []string
 	)
 
+	// 在daemon对象的repositories属性中查找用户指定的镜像
 	img, err := daemon.repositories.LookupImage(config.Image)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// 校验镜像layer总数，镜像层总数不能超过127
 	if err := daemon.checkImageDepth(img); err != nil {
 		return nil, nil, err
 	}
+
+	// 合并用户指定的参数与镜像json文件中的config，校验合法性
 	if warnings, err = daemon.mergeAndVerifyConfig(config, img); err != nil {
 		return nil, nil, err
 	}
+
+	// 创建新的container对象
 	if container, err = daemon.newContainer(name, config, img); err != nil {
 		return nil, nil, err
 	}
+
+	// 创建新的container对象的rootfs
 	if err := daemon.createRootfs(container, img); err != nil {
 		return nil, nil, err
 	}
+
+	// 将container对象json化之后写入本地磁盘进行持久化
 	if err := container.ToDisk(); err != nil {
 		return nil, nil, err
 	}
+
+	// 在Docker Daemon中注册container对象
 	if err := daemon.Register(container); err != nil {
 		return nil, nil, err
 	}
@@ -556,6 +570,7 @@ func (daemon *Daemon) getEntrypointAndArgs(config *runconfig.Config) (string, []
 	return entrypoint, args
 }
 
+// newContainer 新建并初始化container对象。
 func (daemon *Daemon) newContainer(name string, config *runconfig.Config, img *image.Image) (*Container, error) {
 	var (
 		id  string
@@ -573,8 +588,8 @@ func (daemon *Daemon) newContainer(name string, config *runconfig.Config, img *i
 		// FIXME: we should generate the ID here instead of receiving it as an argument
 		ID:              id,
 		Created:         time.Now().UTC(),
-		Path:            entrypoint,
-		Args:            args, //FIXME: de-duplicate from config
+		Path:            entrypoint, // 用户入口命令
+		Args:            args,       //FIXME: de-duplicate from config
 		Config:          config,
 		hostConfig:      &runconfig.HostConfig{},
 		Image:           img.ID, // Always use the resolved image id
